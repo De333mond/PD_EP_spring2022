@@ -168,8 +168,8 @@ def getTable():
         table.append(temp_list)
 
     # print(table)
-    for el in table[0]:
-        print(el["discipline"])
+    # for el in table[0]:
+    #     print(el["discipline"])
 
     return table
 
