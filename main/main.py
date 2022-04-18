@@ -1,12 +1,78 @@
 from pyexpat import model
 import random
-
+import json
+from re import template
+from sqlite3 import Cursor
+from tempfile import tempdir
 import xlsxwriter
 import openpyxl
 from openpyxl.styles import PatternFill, Border, Side, Alignment, Protection, Font, NamedStyle
-
 import pyodbc
+from pydantic import BaseModel
 
+class cell(BaseModel):
+    module_color: str
+    discipline: str
+    term: str
+    zet: float
+
+color_pallete_num = 0;
+color_pallete = [{
+    1:"#61F4DE",
+    2:"#5DE8D9",
+    3:"#5ADBD5",
+    4:"#56CFD0",
+    5:"#52C3CC",
+    6:"#4FB6C7",
+    7:"#4BAAC2",
+    8:"#479DBE",
+    9:"#4491B9",
+    10:"#4085B4",
+    20:"#3C78B0",
+    21:"#386CAB",
+    22:"#3560A7",
+    23:"#3153A2",
+    24:"#2D479D",
+    25:"#262E94",
+    26:"#262E94"
+},{
+    1:"#001219",
+    2:"#005f73",
+    3:"#0a9396",
+    4:"#94d2bd",
+    5:"#e9d8a6",
+    6:"#005f73",
+    7:"#ee9b00",
+    8:"#ca6702",
+    9:"#bb3e03",
+    10:"#ae2012",
+    20:"#0a9396",
+    21:"#ca6702",
+    22:"#bb3e03",
+    23:"#ae2012",
+    24:"#ee9b00",
+    25:"#9b2226",
+    26:"#001219"
+},
+{
+    1:"#D32F2F",
+    2:"#FF4081",
+    3:"#7B1FA2",
+    4:"#7C4DFF",
+    5:"#448AFF",
+    6:"#303F9F",
+    7:"#00BCD4",
+    8:"#0288D1",
+    9:"#8BC34A",
+    10:"#388E3C",
+    20:"#FFC107",
+    21:"#FFEB3B",
+    22:"#FF5722",
+    23:"##9E9E9E",
+    24:"#5D4037",
+    25:"#9b2226",
+    26:"#001219"
+},]
 
 # функция подключения к базе данных, на вход требует путь к базе данных возвращает курсор, который указывает на БД
 
@@ -36,43 +102,41 @@ def sort_modul(date):
 # функция делает запрос в базу данных и выводит нужные значения для дальнейшего вывода в карту
 # (мудуль, дисциплина, семестр, зеты(складывая все за одну дисц)), на выходу лист из листов в каждом из которых находятся данные
 def select_to_DataBase(cur):
-    set = []
+    data_set = []
     sem = ["Первый", "Второй", "Третий", "Четвертый", "Пятый", "Шестой", "Седьмой", "Восьмой", ]
     data = []
     buf = ""
     zet = 0.0
     j = -1
     for i in range(len(sem)):
-        cur.execute(
-            'SELECT ID_of_module, Discipline, Control_period, ZET  FROM Disciplines_and_practices WHERE Control_period LIKE ? AND ID_of_the_educational_program = 2',
-            (sem[i] + " семестр"))
+        cur.execute('SELECT ID_of_module, Discipline, Control_period, ZET  FROM Disciplines_and_practices WHERE Control_period LIKE ? AND ID_of_the_educational_program = 2', (sem[i] + " семестр"))
         for row in cur.fetchall():
             if buf != row[1]:
                 buf = row[1]
                 data.append(row[0])
                 data.append(row[1])
                 data.append(row[2])
-                set.append(data.copy())
-                data_rev = set[j]
+                data_set.append(data.copy())
+                data_rev = data_set[j]
                 if len(data_rev) == 3:
                     data_rev.append(int(zet))
-                    set[j] = data_rev.copy()
+                    data_set[j] = data_rev.copy()
                 else:
                     data_rev[3] = int(zet)
-                    set[j] = data_rev.copy()
+                    data_set[j] = data_rev.copy()
                 zet = 0.0
                 j += 1
             if row[3] != None:
                 zet += round(float(row[3]), 1)
 
             data.clear()
-    data_rev = set[-1]
+    data_rev = data_set[-1]
     data_rev.append(int(zet))
-    set[-1] = data_rev.copy()
+    data_set[-1] = data_rev.copy()
 
-    set = sort_modul(set)
-    print(set)
-    return set
+    data_set = sort_modul(data_set)
+    
+    return data_set
 
 
 def select_color(cur, modul):
@@ -80,6 +144,34 @@ def select_color(cur, modul):
         'SELECT Color  FROM Module_reference WHERE ID_of_module LIKE ?', (modul))
     for row in cur.fetchall():
         return (row[0])
+
+
+def getTable():
+    fullname_db = 'main\db.accdb'
+    sem = ["Первый", "Второй", "Третий", "Четвертый", "Пятый", "Шестой", "Седьмой", "Восьмой", ]
+    cur = connect_to_DateBase(fullname_db=fullname_db)
+    data = select_to_DataBase(cur)
+    cell_list = []
+
+    for el in data:
+        с = cell(module_color=color_pallete[color_pallete_num][el[0]],discipline=el[1],term=el[2],zet=el[3])
+        cell_list.append(с)
+
+    table = []
+    for i in range(0,8):
+        temp_list = []
+
+        for el in cell_list:
+            if el.term == sem[i] + ' семестр':
+                temp_list.append(el.dict())
+
+        table.append(temp_list)
+
+    # print(table)
+    for el in table[0]:
+        print(el["discipline"])
+
+    return table
 
 
 # функция создает карту и задаем все данные кроме предметов в семестрах, на вход требует имя карты
@@ -118,6 +210,12 @@ def CreateMap(filename_map):
 def filling_map(fullname_db, filename_map):
     cur = connect_to_DateBase(fullname_db)
     date = select_to_DataBase(cur)
+    
+    # with open("json.json", "w", encoding='utf-8') as file:
+    #     json.dump(date, file, ensure_ascii=False)
+
+    # print(json.dumps(date).encode("utf-8"))
+
     ws, wk = CreateMap(filename_map)
     adr_cell = "B"
     buf = "Первый семестр"
@@ -148,8 +246,10 @@ def filling_map(fullname_db, filename_map):
 # основная функция-связующая все части и вводит основные параметры всего
 def main():
     filename_map = 'map.xlsx'
-    fullname_db = '.\db.accdb;'
-    filling_map(fullname_db, filename_map)
+    fullname_db = 'main\db.accdb'
+    # filling_map(fullname_db, filename_map)
+    getTable();
+    
 
 
 if __name__ == "__main__":
